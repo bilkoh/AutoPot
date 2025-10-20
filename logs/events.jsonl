@@ -1,0 +1,1 @@
+{"ts": "2025-10-20T06:11:06Z", "session_id": "d6101c8f-c14a-4a53-8e00-810ca362e78a", "remote_ip": "127.0.0.1", "remote_port": 65417, "event": "session.close", "phase": "close", "version": "0.1", "payload": {"duration_ms": 152942, "tty_path": "logs\\tty\\d6101c8f-c14a-4a53-8e00-810ca362e78a.log", "bytes_in": 0, "bytes_out": 0}}
