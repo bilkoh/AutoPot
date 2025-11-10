@@ -6,11 +6,12 @@ Handler for `uname` command returning plausible uname -a string.
 import platform
 import datetime
 
+
 async def run(session, argv):
     """
     Return a plausible `uname -a` string.
     """
-    sys = platform.system() or "Linux"
+    sys = "Linux"
     nodename = session.username or "honeypot"
     release = platform.release() or "5.4.0"
     version = platform.version() or "#1 SMP Thu Jan  1 00:00:00 UTC 1970"

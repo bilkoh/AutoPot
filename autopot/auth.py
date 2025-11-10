@@ -8,22 +8,19 @@ import pathlib
 from typing import Optional
 from .session import Session
 
+
 class AuthGate:
-    def __init__(self, session: Session, userdb_path: pathlib.Path,
-                 max_attempts: int = 3, fail_delay: float = 2.0):
+    def __init__(
+        self,
+        session: Session,
+        userdb_path: pathlib.Path,
+        max_attempts: int = 3,
+        fail_delay: float = 2.0,
+    ):
         self.session = session
         self.userdb_path = pathlib.Path(userdb_path)
         self.max_attempts = max_attempts
         self.fail_delay = fail_delay
-
-    async def _prompt(self, writer, prompt: str) -> Optional[str]:
-        try:
-            writer.write(prompt)
-            await writer.drain()
-            # reader.readline will include newline
-            return None
-        except Exception:
-            return None
 
     async def run(self, reader, writer) -> bool:
         """
@@ -41,19 +38,30 @@ class AuthGate:
 
         try:
             while attempts < self.max_attempts:
-                await self.session.log("auth.step", "auth", step="prompt_username", attempt=attempts)
+                await self.session.log(
+                    "auth.step", "auth", step="prompt_username", attempt=attempts
+                )
                 # prompt for username
                 try:
                     writer.write("login: ")
                     await writer.drain()
                 except Exception as e:
-                    await self.session.log("auth.write_error", "auth", where="username_prompt", error=str(e))
+                    await self.session.log(
+                        "auth.write_error",
+                        "auth",
+                        where="username_prompt",
+                        error=str(e),
+                    )
                     return False
 
                 try:
-                    raw = await asyncio.wait_for(reader.readline(), timeout=READ_TIMEOUT)
+                    raw = await asyncio.wait_for(
+                        reader.readline(), timeout=READ_TIMEOUT
+                    )
                 except asyncio.TimeoutError:
-                    await self.session.log("login.timeout", "auth", message="username read timed out")
+                    await self.session.log(
+                        "login.timeout", "auth", message="username read timed out"
+                    )
                     # don't immediately count as a failed attempt; re-prompt
                     attempts += 0
                     continue
@@ -70,21 +78,34 @@ class AuthGate:
                     return False
 
                 username = raw.rstrip("\r\n")
-                await self.session.log("login.prompt", "auth", prompt="login", username=username)
+                await self.session.log(
+                    "login.prompt", "auth", prompt="login", username=username
+                )
 
                 # prompt for password
-                await self.session.log("auth.step", "auth", step="prompt_password", attempt=attempts)
+                await self.session.log(
+                    "auth.step", "auth", step="prompt_password", attempt=attempts
+                )
                 try:
                     writer.write("Password: ")
                     await writer.drain()
                 except Exception as e:
-                    await self.session.log("auth.write_error", "auth", where="password_prompt", error=str(e))
+                    await self.session.log(
+                        "auth.write_error",
+                        "auth",
+                        where="password_prompt",
+                        error=str(e),
+                    )
                     return False
 
                 try:
-                    rawp = await asyncio.wait_for(reader.readline(), timeout=READ_TIMEOUT)
+                    rawp = await asyncio.wait_for(
+                        reader.readline(), timeout=READ_TIMEOUT
+                    )
                 except asyncio.TimeoutError:
-                    await self.session.log("login.timeout", "auth", message="password read timed out")
+                    await self.session.log(
+                        "login.timeout", "auth", message="password read timed out"
+                    )
                     continue
                 except Exception as e:
                     await self.session.log("login.read_error", "auth", error=str(e))
@@ -99,12 +120,17 @@ class AuthGate:
 
                 # Stub: accept all credentials. Real implementation: check userdb.
                 success = True
-                await self.session.log("login.attempt", "auth",
-                                       username=username or "",
-                                       success=bool(success))
+                await self.session.log(
+                    "login.attempt",
+                    "auth",
+                    username=username or "",
+                    success=bool(success),
+                )
                 if success:
                     self.session.username = username or "guest"
-                    await self.session.log("auth.success", "auth", username=self.session.username)
+                    await self.session.log(
+                        "auth.success", "auth", username=self.session.username
+                    )
                     return True
 
                 attempts += 1

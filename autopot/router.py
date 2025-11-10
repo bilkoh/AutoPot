@@ -32,13 +32,16 @@ class Router:
         static files under txtcmds_dir.
         """
         line = (line or "").strip()
+
         if not line:
             return ("", False)
+        
         try:
             argv: List[str] = shlex.split(line)
         except Exception:
             # fallback naive split if shlex fails
             argv = line.split()
+        
         cmd = argv[0] if argv else ""
         # Special-case: uname -a -> handler
         if cmd == "uname":
