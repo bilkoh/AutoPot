@@ -9,12 +9,16 @@ import json
 import datetime
 import pathlib
 import uuid
-from typing import Optional, Any
+from typing import Optional, Any, Dict
 
 _EVENT_LOCK = asyncio.Lock()
 
 def iso_ts():
-    return datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    """
+    Return a timezone-aware UTC ISO timestamp (Z suffix) for logging.
+    """
+    dt = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+    return dt.isoformat().replace("+00:00", "Z")
 
 def ensure_dir(path: pathlib.Path):
     path.mkdir(parents=True, exist_ok=True)
@@ -26,10 +30,12 @@ class Session:
     remote_port: int
     started_ts: str
     username: Optional[str] = None
+    scenario_id: str = "default"
     tty_path: str = ""
     bytes_in: int = 0
     bytes_out: int = 0
     _events_file: str = "logs/events.jsonl"
+    scenario_fs: Optional[Dict[str, Any]] = field(default=None, repr=False)
     _tty_lock: asyncio.Lock = field(init=False, repr=False)
 
     def __post_init__(self):
@@ -58,6 +64,13 @@ class Session:
         async with self._tty_lock:
             with open(self.tty_path, "a", encoding="utf-8", errors="ignore") as f:
                 f.write(f"{prefix}{data}\n")
+
+    def set_scenario(self, scenario_id: str) -> None:
+        """
+        Set the session's scenario_id and clear any cached scenario filesystem.
+        """
+        self.scenario_id = scenario_id or "default"
+        self.scenario_fs = None
 
     async def finalize_close(self) -> None:
         # placeholder for any future cleanup hooks

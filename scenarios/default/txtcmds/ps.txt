@@ -1,0 +1,16 @@
+USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+root         1  0.0  0.3   2140  1320 ?        Ss   Mar17   0:06 init
+root       102  0.0  0.2   2312   980 ?        S    Mar17   0:00 /sbin/ueventd
+root       210  0.0  0.4   3120  1680 ?        S    Mar17   0:02 /sbin/syslogd -n
+root       215  0.0  0.3   2980  1420 ?        S    Mar17   0:01 /sbin/klogd -n
+root       430  0.0  0.5   4024  2100 ?        S    Mar17   0:03 ntpd -g
+root       510  0.0  0.4   3560  1780 ?        S    Mar17   0:01 mdnsd
+root       612  0.0  0.6   5120  2450 ?        S    Mar17   0:05 camd -i eth0 -d /var/recordings
+root       700  0.0  0.4   3896  1650 ?        S    Mar17   0:02 recorderd -c /etc/camera.conf
+root       812  0.0  0.3   2816  1380 ?        Ss   Mar17   0:00 telnetd -l /bin/sh
+root       845  0.0  0.7   6232  2980 ?        S    Mar17   0:04 httpd -p 80 -h /www
+root       860  0.0  0.6   5984  2600 ?        S    Mar17   0:03 rtspd -c /etc/rtsp.conf
+root       930  0.0  0.3   2740  1350 ?        S    Mar17   0:01 udhcpc -i eth0 -s /etc/udhcpc.script
+root      1120  0.0  0.2   2200   980 ttyS0    Ss+  Mar17   0:00 /bin/getty -L ttyS0 115200 vt100
+admin     1432  0.0  0.4   3320  1700 pts/0    Ss   08:11   0:00 -sh
+admin     1460  0.0  0.5   3780  2100 pts/0    R+   08:12   0:00 ps aux

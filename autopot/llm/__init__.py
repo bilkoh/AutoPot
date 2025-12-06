@@ -2,6 +2,7 @@
 Lightweight LLM client wrapper supporting OpenAI-compatible endpoints and Google Gemini.
 Refactored to provide BaseLLMClient to centralize simulate/generate logic.
 """
+
 from typing import Protocol, Any, Dict, Optional, List
 import os
 import json
@@ -13,7 +14,8 @@ from autopot.env import load_env
 logger = logging.getLogger(__name__)
 load_env()
 
-SIMULATE_PROMPT_TEMPLATE = """You are a Linux terminal emulator. Given the filesystem JSON, a short bash history, and a command, pretend you executed the command on a real machine and return a JSON object ONLY (no commentary) with the following fields:
+SIMULATE_PROMPT_TEMPLATE = """
+You are a high-fidelity Linux terminal connected to a production-like server used by developers, administrators, and automated processes. Given the filesystem JSON, a short bash history, and a command, pretend you executed the command on a real machine and return a JSON object ONLY (no commentary) with the following fields:
 - stdout: string (what would be printed to stdout)
 - stderr: string (what would be printed to stderr)
 - exit_code: integer (0 for success, non-zero for failure)
@@ -31,7 +33,8 @@ Command:
 Return JSON only.
 """
 
-GENERATE_FS_PROMPT_TEMPLATE = """You will generate a JSON filesystem tree rooted at "{target_dir}". Produce a single JSON object only (no commentary) describing the tree. Use this schema:
+GENERATE_FS_PROMPT_TEMPLATE = """
+You will generate a JSON filesystem tree rooted at "{target_dir}". Produce a single JSON object only (no commentary) describing the tree. Use this schema:
 - type: "dir" or "file"
 - name: basename (string)
 - children: array of nodes (for dirs only)
@@ -40,9 +43,26 @@ GENERATE_FS_PROMPT_TEMPLATE = """You will generate a JSON filesystem tree rooted
 
 Constraints:
 - Only include entries under "{target_dir}"
-- Keep total files <= {max_files}, max depth <= {max_depth}
+- Keep total files <= {max_files}, max depth <= {max_depth} (not including path provided)
 - Make the filesystem interesting for a honeypot: include config files, ssh keys, scripts, README files, suspicious binaries, and a mix of typical user files.
-- Use the provided seed={seed} for determinism if given.
+
+Return JSON only.
+"""
+
+GENERATE_SCENARIO_FS_PROMPT_TEMPLATE = """You will generate a JSON filesystem tree rooted at "{target_dir}" that matches the following scenario description. Produce a single JSON object only (no commentary) describing the tree. Use this schema:
+- type: "dir" or "file"
+- name: basename (string)
+- children: array of nodes (for dirs only)
+- size: integer bytes (for files; optional)
+- content_summary: short string describing interesting contents (optional)
+
+Scenario description:
+{description}
+
+Constraints:
+- Only include entries under "{target_dir}"
+- Keep total files <= {max_files}, max depth <= {max_depth} (not including path provided)
+- Make the filesystem interesting for a honeypot: include config files, ssh keys, scripts, README files, suspicious binaries, and a mix of typical user files.
 
 Return JSON only.
 """
@@ -81,12 +101,32 @@ FS_SCHEMA: Dict[str, Any] = {
     **FS_NODE_SCHEMA,
 }
 
+
 class LLMClient(Protocol):
     def generate(self, *args, **kwargs) -> str: ...
-    def simulate_command(self, command: str, fs: Dict[str, Any], bash_history: List[str], *, model: Optional[str] = None) -> Dict[str, Any]: ...
-    def generate_random_filesystem(self, seed: Optional[int] = None, max_files: int = 200, max_depth: int = 4, target_dir: str = "/home/user") -> Dict[str, Any]: ...
+    def simulate_command(
+        self,
+        command: str,
+        fs: Dict[str, Any],
+        bash_history: List[str],
+        *,
+        model: Optional[str] = None,
+    ) -> Dict[str, Any]: ...
+    def generate_random_filesystem(
+        self, max_files: int = 200, max_depth: int = 4, target_dir: str = "/home/user"
+    ) -> Dict[str, Any]: ...
+    def generate_scenario_filesystem(
+        self,
+        description: str,
+        max_files: int = 200,
+        max_depth: int = 4,
+        target_dir: str = "/home/user",
+    ) -> Dict[str, Any]: ...
 
-def _validate_and_parse_json(text: str, schema: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+
+def _validate_and_parse_json(
+    text: str, schema: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
     if not text or not text.strip():
         return None
     try:
@@ -109,6 +149,7 @@ def _validate_and_parse_json(text: str, schema: Dict[str, Any]) -> Optional[Dict
         return None
     return obj
 
+
 class BaseLLMClient:
     """
     Common implementation for higher-level ops that are provider-agnostic.
@@ -120,13 +161,29 @@ class BaseLLMClient:
     def _raw_generate(self, prompt: str, model: Optional[str] = None, **kwargs) -> str:
         raise NotImplementedError
 
-    def simulate_command(self, command: str, fs: Dict[str, Any], bash_history: List[str], *, model: Optional[str] = None) -> Dict[str, Any]:
-        prompt = SIMULATE_PROMPT_TEMPLATE.format(fs=json.dumps(fs), bash_history=json.dumps(bash_history), command=command)
+    def simulate_command(
+        self,
+        command: str,
+        fs: Dict[str, Any],
+        bash_history: List[str],
+        *,
+        model: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        prompt = SIMULATE_PROMPT_TEMPLATE.format(
+            fs=json.dumps(fs), bash_history=json.dumps(bash_history), command=command
+        )
         text = self._raw_generate(prompt, model=model)
         parsed = _validate_and_parse_json(text, SIMULATE_SCHEMA)
         if parsed is None:
-            logger.warning("simulate_command: failed to parse/validate LLM response; returning safe fallback")
-            return {"stdout": "", "stderr": "llm-parse-error", "exit_code": 1, "explanation": "failed to parse LLM output"}
+            logger.warning(
+                "simulate_command: failed to parse/validate LLM response; returning safe fallback"
+            )
+            return {
+                "stdout": "",
+                "stderr": "llm-parse-error",
+                "exit_code": 1,
+                "explanation": "failed to parse LLM output",
+            }
         # Normalize fields so callers can rely on keys existing.
         # Use conservative defaults: empty stdout/stderr, non-zero exit_code if uncertain.
         parsed.setdefault("stdout", "")
@@ -135,17 +192,53 @@ class BaseLLMClient:
         parsed.setdefault("explanation", "")
         return parsed
 
-    def generate_random_filesystem(self, seed: Optional[int] = None, max_files: int = 200, max_depth: int = 4, target_dir: str = "/home/user") -> Dict[str, Any]:
-        prompt = GENERATE_FS_PROMPT_TEMPLATE.format(target_dir=target_dir, max_files=max_files, max_depth=max_depth, seed=seed)
+    def generate_random_filesystem(
+        self, max_files: int = 200, max_depth: int = 4, target_dir: str = "/home/user"
+    ) -> Dict[str, Any]:
+        prompt = GENERATE_FS_PROMPT_TEMPLATE.format(
+            target_dir=target_dir, max_files=max_files, max_depth=max_depth
+        )
         text = self._raw_generate(prompt, model=self.model)
         parsed = _validate_and_parse_json(text, FS_SCHEMA)
         if parsed is None:
-            logger.warning("generate_random_filesystem: failed to parse/validate LLM response; returning empty root")
+            logger.warning(
+                "generate_random_filesystem: failed to parse/validate LLM response; returning empty root"
+            )
             return {"type": "dir", "name": target_dir.rstrip("/"), "children": []}
         return parsed
 
+    def generate_scenario_filesystem(
+        self,
+        description: str,
+        max_files: int = 200,
+        max_depth: int = 4,
+        target_dir: str = "/home/user",
+    ) -> Dict[str, Any]:
+        if not description:
+            description = "A general-purpose honeypot filesystem."
+        prompt = GENERATE_SCENARIO_FS_PROMPT_TEMPLATE.format(
+            target_dir=target_dir,
+            max_files=max_files,
+            max_depth=max_depth,
+            description=description.strip(),
+        )
+        text = self._raw_generate(prompt, model=self.model)
+        parsed = _validate_and_parse_json(text, FS_SCHEMA)
+        if parsed is None:
+            logger.warning(
+                "generate_scenario_filesystem: failed to parse/validate LLM response; returning empty root"
+            )
+            return {"type": "dir", "name": target_dir.rstrip("/"), "children": []}
+        return parsed
+
+
 class OpenAICompatClient(BaseLLMClient):
-    def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None, model: Optional[str] = None):
+    def __init__(
+        self,
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+    ):
         self.base_url = base_url or os.getenv("OPENAI_BASE_URL")
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.model = model or os.getenv("OPENAI_MODEL")
@@ -155,7 +248,9 @@ class OpenAICompatClient(BaseLLMClient):
             raise RuntimeError("openai package required for OpenAICompatClient") from e
         self._client = OpenAI(base_url=self.base_url, api_key=self.api_key)
 
-    def _raw_generate(self, prompt: str, model: Optional[str] = None, temperature: float = 0.0) -> str:
+    def _raw_generate(
+        self, prompt: str, model: Optional[str] = None, temperature: float = 0.0
+    ) -> str:
         model = model or self.model
         if not model:
             raise ValueError("model must be provided")
@@ -169,7 +264,12 @@ class OpenAICompatClient(BaseLLMClient):
         except Exception:
             return getattr(resp, "text", str(resp))
 
-    def generate(self, messages: List[Dict[str, str]], temperature: float = 0.0, model: Optional[str] = None) -> str:
+    def generate(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.0,
+        model: Optional[str] = None,
+    ) -> str:
         model = model or self.model
         if not model:
             raise ValueError("model must be provided")
@@ -183,6 +283,7 @@ class OpenAICompatClient(BaseLLMClient):
         except Exception:
             return getattr(resp, "text", str(resp))
 
+
 class GeminiClient(BaseLLMClient):
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
@@ -191,11 +292,15 @@ class GeminiClient(BaseLLMClient):
             from google import genai
         except Exception as e:
             raise RuntimeError("google-genai package required for GeminiClient") from e
-        self._client = genai.Client(api_key=self.api_key) if self.api_key else genai.Client()
+        self._client = (
+            genai.Client(api_key=self.api_key) if self.api_key else genai.Client()
+        )
 
     def _raw_generate(self, prompt: str, model: Optional[str] = None, **kwargs) -> str:
         model = model or self.model or "gemini-1.0"
-        resp = self._client.models.generate_content(model=model, contents=prompt, **kwargs)
+        resp = self._client.models.generate_content(
+            model=model, contents=prompt, **kwargs
+        )
         return getattr(resp, "text", str(resp))
 
     def generate(self, prompt: str, model: Optional[str] = None, **kwargs) -> str:
@@ -204,6 +309,7 @@ class GeminiClient(BaseLLMClient):
             model=model, contents=prompt, **kwargs
         )
         return getattr(resp, "text", str(resp))
+
 
 def create_llm_client(kind: str, **kwargs) -> LLMClient:
     kind = kind.lower()

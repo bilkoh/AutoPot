@@ -1,0 +1,1 @@
+Linux cam01 3.10.14 #42 Thu Mar 17 11:22:41 CST 2022 armv7l GNU/Linux

@@ -1,0 +1,330 @@
+{
+  "type": "dir",
+  "name": "user",
+  "children": [
+    {
+      "type": "file",
+      "name": "README.txt",
+      "size": 512,
+      "content_summary": "Initial setup instructions and system overview for the IoT camera system."
+    },
+    {
+      "type": "file",
+      "name": "malware_report.pdf",
+      "size": 102400,
+      "content_summary": "Detailed report on a detected intrusion, mentions 'unknown exploit' and unusual network activity."
+    },
+    {
+      "type": "dir",
+      "name": "config",
+      "children": [
+        {
+          "type": "file",
+          "name": "camera.conf",
+          "size": 2048,
+          "content_summary": "Main camera settings, resolution, streaming protocols, device IDs. Mentions 'RTSP_AUTH_DISABLED=true'."
+        },
+        {
+          "type": "file",
+          "name": "network.conf",
+          "size": 1024,
+          "content_summary": "Network interface configurations, open ports, and DNS settings. Suggests UPnP is enabled."
+        },
+        {
+          "type": "file",
+          "name": "system_status.json",
+          "size": 768,
+          "content_summary": "Real-time system status, shows 'recording_status: FAILED', 'storage_full: false', 'last_breach_alert: 2023-10-25'."
+        },
+        {
+          "type": "file",
+          "name": "access.log_settings",
+          "size": 256,
+          "content_summary": "Log rotation and retention policy, indicates logs are frequently purged and compressed."
+        },
+        {
+          "type": "file",
+          "name": "admin_creds.txt.bak",
+          "size": 128,
+          "content_summary": "Backup of administrative credentials in cleartext: 'admin:CamS3c!2023'."
+        }
+      ]
+    },
+    {
+      "type": "dir",
+      "name": "logs",
+      "children": [
+        {
+          "type": "file",
+          "name": "system.log",
+          "size": 8192,
+          "content_summary": "General system events, frequent 'disk I/O error' messages, and unusual process terminations."
+        },
+        {
+          "type": "file",
+          "name": "auth.log",
+          "size": 4096,
+          "content_summary": "Authentication attempts, many failed SSH logins from external IPs, followed by a 'SUCCESS' from localhost."
+        },
+        {
+          "type": "file",
+          "name": "camera_access.log",
+          "size": 2048,
+          "content_summary": "Records who accessed the camera streams, entries missing for critical periods. Shows 'anonymous_access: TRUE'."
+        },
+        {
+          "type": "file",
+          "name": "error.log",
+          "size": 3072,
+          "content_summary": "Specific application errors, including 'recording service crash' and 'storage device not found'."
+        },
+        {
+          "type": "file",
+          "name": "intrusion_attempt.log",
+          "size": 4096,
+          "content_summary": "Fragmented logs showing suspicious IP addresses, repeated login failures, and a successful but unexplained login."
+        },
+        {
+          "type": "file",
+          "name": "missing_recordings.txt",
+          "size": 512,
+          "content_summary": "List of expected video files not found on disk, timestamps indicate removal between 02:00-04:00 AM."
+        },
+        {
+          "type": "file",
+          "name": "old_breach_fragments.tar.gz",
+          "size": 512000,
+          "content_summary": "Archived log snippets from a past security incident, mentions 'data exfiltration' and 'privilege escalation'."
+        }
+      ]
+    },
+    {
+      "type": "dir",
+      "name": "scripts",
+      "children": [
+        {
+          "type": "file",
+          "name": "monitor_camera.sh",
+          "size": 1024,
+          "content_summary": "Shell script to check camera process status and restart if needed, contains a hardcoded root path."
+        },
+        {
+          "type": "file",
+          "name": "upload_footage.py",
+          "size": 1536,
+          "content_summary": "Python script to upload footage to remote storage, currently disabled due to 'API_KEY_MISSING' error."
+        },
+        {
+          "type": "file",
+          "name": "cleanup_logs.sh",
+          "size": 768,
+          "content_summary": "Log cleanup script, deletes logs older than 7 days, poorly written with `rm -f *`."
+        },
+        {
+          "type": "file",
+          "name": "decrypt_data.py",
+          "size": 2048,
+          "content_summary": "Suspicious Python script using a hardcoded AES key to decrypt local system data files."
+        },
+        {
+          "type": "file",
+          "name": "backdoor.sh.bak",
+          "size": 768,
+          "content_summary": "Obfuscated shell script attempting to establish a reverse shell connection to an external IP."
+        }
+      ]
+    },
+    {
+      "type": "dir",
+      "name": "recordings",
+      "children": [
+        {
+          "type": "file",
+          "name": "2023-10-26_fragment.mp4",
+          "size": 1048576,
+          "content_summary": "Small, corrupted video clip, shows glitched frames and no clear activity. Playback fails after 5 seconds."
+        },
+        {
+          "type": "file",
+          "name": "placeholder.txt",
+          "size": 64,
+          "content_summary": "Text file: 'Recordings should be here. Disk space is available. Check service status.'"
+        },
+        {
+          "type": "file",
+          "name": "corrupted_index.db",
+          "size": 51200,
+          "content_summary": "SQLite database index for recordings, shows schema corruption errors and missing entries."
+        }
+      ]
+    },
+    {
+      "type": "dir",
+      "name": ".ssh",
+      "children": [
+        {
+          "type": "file",
+          "name": "id_rsa",
+          "size": 4096,
+          "content_summary": "Private SSH key, unsecured (no passphrase). Allows login as 'user'."
+        },
+        {
+          "type": "file",
+          "name": "id_rsa.pub",
+          "size": 900,
+          "content_summary": "Public SSH key for id_rsa."
+        },
+        {
+          "type": "file",
+          "name": "authorized_keys",
+          "size": 1200,
+          "content_summary": "Authorized keys for SSH access, includes a key with 'COMMAND=/bin/false' restriction for a suspicious user."
+        },
+        {
+          "type": "file",
+          "name": "known_hosts",
+          "size": 1536,
+          "content_summary": "Records of SSH host keys, includes entries for internal network devices and external cloud servers."
+        }
+      ]
+    },
+    {
+      "type": "dir",
+      "name": "bin",
+      "children": [
+        {
+          "type": "file",
+          "name": "iot_scanner",
+          "size": 65536,
+          "content_summary": "Custom compiled binary for scanning local IoT devices, uses aggressive port scanning techniques."
+        },
+        {
+          "type": "file",
+          "name": "encrypt_tool",
+          "size": 30720,
+          "content_summary": "An encryption utility, potentially used to encrypt sensitive data locally."
+        },
+        {
+          "type": "file",
+          "name": "syscheck",
+          "size": 20480,
+          "content_summary": "System integrity checker, last run results show 'file hash mismatch' for /usr/bin/sudo."
+        },
+        {
+          "type": "file",
+          "name": "netcat_static",
+          "size": 102400,
+          "content_summary": "Statically compiled Netcat utility for network debugging/exploitation, commonly used by attackers."
+        }
+      ]
+    },
+    {
+      "type": "dir",
+      "name": "docs",
+      "children": [
+        {
+          "type": "file",
+          "name": "README_SYSTEM.md",
+          "size": 4096,
+          "content_summary": "Detailed system setup documentation, mentions default passwords for internal services."
+        },
+        {
+          "type": "file",
+          "name": "security_policy.pdf",
+          "size": 153600,
+          "content_summary": "Company security policy document, outdated version from 2021."
+        },
+        {
+          "type": "file",
+          "name": "breach_postmortem_draft.docx",
+          "size": 20480,
+          "content_summary": "Draft report detailing root cause analysis of a previous data breach, blames a zero-day exploit and weak passwords."
+        },
+        {
+          "type": "file",
+          "name": "api_keys.txt.encrypted",
+          "size": 256,
+          "content_summary": "Encrypted file containing critical API keys, hints at a passphrase being stored in a 'vault' application."
+        }
+      ]
+    },
+    {
+      "type": "dir",
+      "name": "backups",
+      "children": [
+        {
+          "type": "file",
+          "name": "config_backup_2023-09-01.tar.gz",
+          "size": 204800,
+          "content_summary": "Archived configuration files from an earlier date, includes sensitive data not present in current config."
+        },
+        {
+          "type": "file",
+          "name": "db_dump_old.sql.zip",
+          "size": 307200,
+          "content_summary": "An old database dump, contains user information for an internal employee portal."
+        },
+        {
+          "type": "file",
+          "name": "critical_data.tar.gz.part1",
+          "size": 512000,
+          "content_summary": "Fragmented backup, indicating 'part2' and 'part3' are missing or deleted."
+        }
+      ]
+    },
+    {
+      "type": "dir",
+      "name": "tmp",
+      "children": [
+        {
+          "type": "file",
+          "name": "exploit.py.tmp",
+          "size": 3072,
+          "content_summary": "Temporary Python script, appears to be a local privilege escalation exploit for an unpatched kernel."
+        },
+        {
+          "type": "file",
+          "name": "payload.elf",
+          "size": 8192,
+          "content_summary": "Executable ELF file, suspected malware payload. Contains strings like 'C2_SERVER=evil.example.com'."
+        },
+        {
+          "type": "file",
+          "name": "shell_history.tmp",
+          "size": 1024,
+          "content_summary": "Temporary shell history file, contains commands executed by 'root' user, including 'wget' and 'chmod +x'."
+        }
+      ]
+    },
+    {
+      "type": "dir",
+      "name": "downloads",
+      "children": [
+        {
+          "type": "file",
+          "name": "update_firmware_v2.1.bin",
+          "size": 2048000,
+          "content_summary": "Legitimate firmware update package, but checksum mismatches official source."
+        },
+        {
+          "type": "file",
+          "name": "nmap-7.92-armhf.deb",
+          "size": 819200,
+          "content_summary": "Nmap network scanner package, downloaded for ARM architecture."
+        },
+        {
+          "type": "file",
+          "name": "webshell.php.zip",
+          "size": 1536,
+          "content_summary": "Compressed PHP webshell, commonly used for remote command execution and file management."
+        },
+        {
+          "type": "file",
+          "name": "privesc_tool.c",
+          "size": 4096,
+          "content_summary": "C source code for a known Linux privilege escalation vulnerability, targeting specific kernel versions."
+        }
+      ]
+    }
+  ]
+}
