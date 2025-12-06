@@ -113,6 +113,7 @@ async def shell(reader, writer) -> None:
             line = line.rstrip("\r\n")
             if not line:
                 continue
+            session.record_command(line)
             await session.write_tty("in", line)
             await session.log("command.input", "shell", raw=line, argv=line.split())
             out, truncated = await router.dispatch(session, line)

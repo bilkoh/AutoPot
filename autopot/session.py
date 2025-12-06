@@ -9,7 +9,7 @@ import json
 import datetime
 import pathlib
 import uuid
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, List
 
 _EVENT_LOCK = asyncio.Lock()
 
@@ -35,7 +35,9 @@ class Session:
     bytes_in: int = 0
     bytes_out: int = 0
     _events_file: str = "logs/events.jsonl"
+    cwd: str = "/home/user"
     scenario_fs: Optional[Dict[str, Any]] = field(default=None, repr=False)
+    history: List[str] = field(default_factory=list, repr=False)
     _tty_lock: asyncio.Lock = field(init=False, repr=False)
 
     def __post_init__(self):
@@ -71,6 +73,13 @@ class Session:
         """
         self.scenario_id = scenario_id or "default"
         self.scenario_fs = None
+
+    def record_command(self, command: str) -> None:
+        """
+        Track the raw command line for history/LLM use.
+        """
+        if command:
+            self.history.append(command)
 
     async def finalize_close(self) -> None:
         # placeholder for any future cleanup hooks
