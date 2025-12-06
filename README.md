@@ -19,15 +19,29 @@ AutoPot is an experimental Telnet honeypot that replaces scripted replies with r
 - **Data sources** consisting of passive logs from exposed endpoints and synthetic scripted attacker sessions to measure adaptive behavior.
 
 
-## How to run server
+## Getting started
 ```bash
-.\env\Scripts\Activate.ps1
+# activate (Windows cmd)
+.venv\Scripts\activate.bat
+
+# activate (PowerShell)
+.venv\Scripts\Activate.ps1
+
+# activate (bash / WSL / Git Bash)
+source .venv/bin/activate
 ```
+
+### Run this for the first time:
+```bash
+pip install -r requirements.txt
+```
+
+### Start server:
 ```bash
 python -m autopot.server --port 21
 ```
 
-## How to run tests
+### Rrun tests:
 ```bash
 pytest -q
 ```
