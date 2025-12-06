@@ -38,7 +38,7 @@ pip install -r requirements.txt
 
 ### Start server:
 ```bash
-python -m autopot.server --port 21
+python -m autopot.server --port 23
 ```
 
 ### Rrun tests:
