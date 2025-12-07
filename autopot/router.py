@@ -3,10 +3,11 @@
 autopot/router.py
 Simple command router that dispatches to handlers or returns canned txtcmds.
 """
+import logging
 import shlex
 import pathlib
 import asyncio
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Dict, Any
 from .session import Session
 from .scenario import ScenarioManager
 from .fs_snapshot import (
@@ -14,6 +15,9 @@ from .fs_snapshot import (
     BASE_FS_PATH_PARTS,
     ROOT_FS_PATH,
 )
+from .llm import LLMClient
+
+logger = logging.getLogger(__name__)
 
 TXT_CMD_MAP = {
     "pwd": "pwd.txt",
@@ -46,11 +50,13 @@ class Router:
         txtcmds_dir: Optional[pathlib.Path] = None,
         scenarios_root: Optional[pathlib.Path] = None,
         max_output: int = 16_384,
+        llm_client: Optional[LLMClient] = None,
     ):
         # Keep txtcmds_dir param for backward compatibility but prefer scenario assets.
         self.txtcmds_dir = pathlib.Path(txtcmds_dir) if txtcmds_dir else None
         self.scenario_mgr = ScenarioManager(scenarios_root)
         self.max_output = int(max_output)
+        self.llm_client = llm_client
 
     async def dispatch(self, session: Session, line: str) -> Tuple[str, bool]:
         """
@@ -86,6 +92,15 @@ class Router:
                 out = await whoami_run(session, argv)
             except Exception:
                 out = session.username or "guest"
+            truncated = len(out.encode()) > self.max_output
+            return (out[: self.max_output], truncated)
+        if cmd == "history":
+            try:
+                from .handlers.history import run as history_run
+
+                out = await history_run(session, argv)
+            except Exception:
+                out = "\n".join(session.history)
             truncated = len(out.encode()) > self.max_output
             return (out[: self.max_output], truncated)
         # Special-case: uname -a -> handler
@@ -154,7 +169,9 @@ class Router:
         if p:
             return await self._read_txt_file(p)
 
-        # try scenario-specific txtcmd for command was checked earlier.
+        if self.llm_client:
+            return await self._simulate_with_llm(session, line, cmd)
+
         # No legacy top-level txtcmds fallback: return command not found.
         return (f"sh: {cmd}: command not found", False)
 
@@ -167,6 +184,57 @@ class Router:
             return ("", False)
         truncated = len(text.encode()) > self.max_output
         return (text[: self.max_output], truncated)
+
+    async def _simulate_with_llm(
+        self, session: Session, line: str, cmd: str
+    ) -> Tuple[str, bool]:
+        fs = self._get_fs_for_simulation(session)
+        history = list(session.history)
+
+        try:
+            response = await asyncio.to_thread(
+                self.llm_client.simulate_command, line, fs, history
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("LLM simulate_command failed for %s", cmd)
+            await session.log(
+                "llm.simulate_command",
+                "llm",
+                command=line,
+                error="simulate_command raised an exception",
+            )
+            return (f"sh: {cmd}: command not found", False)
+        
+        if not isinstance(response, dict):
+            logger.warning("LLM simulate_command returned unexpected response for %s", cmd)
+            await session.log(
+                "llm.simulate_command",
+                "llm",
+                command=line,
+                raw_response=str(response),
+            )
+            return (f"sh: {cmd}: command not found", False)
+        
+        output = self._format_simulated_output(response)
+        truncated = len(output.encode()) > self.max_output
+        await session.log(
+            "llm.simulate_command",
+            "llm",
+            command=line,
+            response=response,
+            output=output,
+            truncated=truncated,
+        )
+        return (output[: self.max_output], truncated)
+
+    def _format_simulated_output(self, response: Dict[str, Any]) -> str:
+        stdout = response.get("stdout", "")
+        stderr = response.get("stderr", "")
+        if stdout and stderr:
+            return "\n".join([stdout, stderr])
+        return stdout or stderr or ""
 
     def _handle_builtin(self, session: Session, argv: List[str]) -> Optional[Tuple[str, bool]]:
         if not argv:
@@ -238,6 +306,17 @@ class Router:
         session.scenario_fs = raw
         session.scenario_fs_snapshot = snapshot
         return snapshot
+
+    def _get_fs_for_simulation(self, session: Session) -> Dict[str, Any]:
+        fs = session.scenario_fs
+        if not fs:
+            raw = self.scenario_mgr.load_fs(session)
+            if raw:
+                fs = raw
+            else:
+                fs = {"type": "dir", "name": BASE_FS_PATH_PARTS[-1], "children": []}
+            session.scenario_fs = fs
+        return fs
 
     def _resolve_target_parts(self, session: Session, target: str) -> Optional[List[str]]:
         target = (target or "").strip()

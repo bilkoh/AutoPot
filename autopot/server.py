@@ -7,6 +7,7 @@ import asyncio
 import datetime
 import uuid
 import pathlib
+import os
 from typing import Optional
 import telnetlib3
 from telnetlib3.telopt import ECHO, WILL
@@ -15,6 +16,10 @@ import logging
 from .session import Session
 from .auth import AuthGate
 from .router import Router
+from .env import load_env
+from .llm import create_llm_client, LLMClient
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG = {
     "server": {"host": "0.0.0.0", "port": 2323, "banner": "Welcome to mini-telnetd"},
@@ -49,6 +54,39 @@ def _normalize_for_terminal(text: str) -> str:
         return ""
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     return normalized.replace("\n", "\r\n")
+
+
+def _create_configured_llm_client() -> Optional[LLMClient]:
+    load_env()
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    openai_model = os.getenv("OPENAI_MODEL")
+    if openai_api_key and openai_model:
+        try:
+            client = create_llm_client(
+                "openai-compat",
+                base_url=os.getenv("OPENAI_BASE_URL"),
+                api_key=openai_api_key,
+                model=openai_model,
+            )
+            logger.info("Using OpenAI-compatible LLM model %s for command fallback", openai_model)
+            return client
+        except Exception as exc:
+            logger.warning("Failed to initialize OpenAI LLM client: %s", exc)
+    
+    gemini_model = os.getenv("GEMINI_MODEL")
+    gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if gemini_model and gemini_api_key:
+        try:
+            client = create_llm_client("gemini", api_key=gemini_api_key, model=gemini_model)
+            logger.info("Using Gemini LLM model %s for command fallback", gemini_model)
+            return client
+        except Exception as exc:
+            logger.warning("Failed to initialize Gemini LLM client: %s", exc)
+    logger.debug("No LLM provider configured for command fallback")
+    return None
+
+
+LLM_CLIENT = _create_configured_llm_client()
 
 
 async def shell(reader, writer) -> None:
@@ -116,6 +154,7 @@ async def shell(reader, writer) -> None:
         router = Router(
             pathlib.Path(CONFIG["paths"]["txtcmds_dir"]),
             max_output=CONFIG["limits"]["max_output_bytes"],
+            llm_client=LLM_CLIENT,
         )
 
         prompt = lambda: f"{session.username or 'guest'}@{CONFIG['hostname']}$ "

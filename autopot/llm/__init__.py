@@ -180,7 +180,7 @@ class BaseLLMClient:
             )
             return {
                 "stdout": "",
-                "stderr": "llm-parse-error",
+                "stderr": "sh: internal parse error",
                 "exit_code": 1,
                 "explanation": "failed to parse LLM output",
             }
