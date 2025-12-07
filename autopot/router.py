@@ -9,6 +9,11 @@ import asyncio
 from typing import Tuple, List, Optional
 from .session import Session
 from .scenario import ScenarioManager
+from .fs_snapshot import (
+    FileSystemSnapshot,
+    BASE_FS_PATH_PARTS,
+    ROOT_FS_PATH,
+)
 
 TXT_CMD_MAP = {
     "pwd": "pwd.txt",
@@ -19,6 +24,20 @@ TXT_CMD_MAP = {
     # uname is handled by a real handler for `uname -a`
     # cat /etc/passwd -> etc_passwd.txt
 }
+
+
+DEFAULT_DIR_PERMS = "drwxr-xr-x"
+DEFAULT_FILE_PERMS = "-rw-r--r--"
+DEFAULT_OWNER = "user"
+DEFAULT_GROUP = "user"
+DEFAULT_TIMESTAMP = "Jan 01 00:00"
+
+
+def _format_ls_entry(node: dict, name: str) -> str:
+    perms = DEFAULT_DIR_PERMS if node.get("type") == "dir" else DEFAULT_FILE_PERMS
+    links = 2 if node.get("type") == "dir" else 1
+    size = node.get("size", 0) or 0
+    return f"{perms} {links:>3} {DEFAULT_OWNER} {DEFAULT_GROUP} {size:>8} {DEFAULT_TIMESTAMP} {name}"
 
 
 class Router:
@@ -106,6 +125,12 @@ class Router:
             # no legacy top-level fallback anymore: return empty result
             return ("", False)
 
+        builtin = self._handle_builtin(session, argv)
+        if builtin is not None:
+            out, _ = builtin
+            truncated = len(out.encode()) > self.max_output
+            return (out[: self.max_output], truncated)
+
         # static mapping (with scenario overrides)
         if cmd in TXT_CMD_MAP:
             mapped = TXT_CMD_MAP[cmd]
@@ -142,3 +167,107 @@ class Router:
             return ("", False)
         truncated = len(text.encode()) > self.max_output
         return (text[: self.max_output], truncated)
+
+    def _handle_builtin(self, session: Session, argv: List[str]) -> Optional[Tuple[str, bool]]:
+        if not argv:
+            return None
+        cmd = argv[0]
+        if cmd == "pwd":
+            return (session.cwd, False)
+        if cmd == "cd":
+            return self._handle_cd(session, argv)
+        if cmd == "ls":
+            return self._handle_ls(session, argv)
+        return None
+
+    def _handle_cd(self, session: Session, argv: List[str]) -> Optional[Tuple[str, bool]]:
+        dest = argv[1] if len(argv) > 1 else ROOT_FS_PATH
+        snapshot = self._get_fs_snapshot(session)
+        if not snapshot:
+            return None
+        parts = self._resolve_target_parts(session, dest)
+        if parts is None:
+            display = argv[1] if len(argv) > 1 else dest
+            return (f"bash: cd: {display}: No such file or directory", False)
+        rel = tuple(parts[len(BASE_FS_PATH_PARTS) :])
+        node = snapshot.get_node(rel)
+        if not node or node.get("type") != "dir":
+            display = argv[1] if len(argv) > 1 else dest
+            return (f"bash: cd: {display}: No such file or directory", False)
+        session.cwd = "/" + "/".join(parts)
+        return ("", False)
+
+    def _handle_ls(self, session: Session, argv: List[str]) -> Optional[Tuple[str, bool]]:
+        snapshot = self._get_fs_snapshot(session)
+        if not snapshot:
+            return None
+        args = [arg for arg in argv[1:] if arg and not arg.startswith("-")]
+        target = args[0] if args else ""
+        parts = self._resolve_target_parts(session, target)
+        if parts is None:
+            display = target or "."
+            return (f"ls: cannot access '{display}': No such file or directory", False)
+        rel = tuple(parts[len(BASE_FS_PATH_PARTS) :])
+        node = snapshot.get_node(rel)
+        if not node:
+            display = target or "."
+            return (f"ls: cannot access '{display}': No such file or directory", False)
+        if node.get("type") != "dir":
+            display_name = node.get("name") or target or ""
+            return (_format_ls_entry(node, display_name), False)
+
+        children = snapshot.list_dir(rel) or []
+        lines: List[str] = []
+        lines.append(_format_ls_entry(node, "."))
+        parent_rel = rel[:-1] if rel else rel
+        parent_node = snapshot.get_node(parent_rel) or node
+        lines.append(_format_ls_entry(parent_node, ".."))
+        sorted_children = sorted(children, key=lambda entry: entry.get("name") or "")
+        for child in sorted_children:
+            name = child.get("name") or ""
+            lines.append(_format_ls_entry(child, name))
+        return ("\n".join(lines), False)
+
+    def _get_fs_snapshot(self, session: Session) -> Optional[FileSystemSnapshot]:
+        if session.scenario_fs_snapshot:
+            return session.scenario_fs_snapshot
+        raw = session.scenario_fs or self.scenario_mgr.load_fs(session)
+        if not raw:
+            return None
+        snapshot = FileSystemSnapshot(raw)
+        session.scenario_fs = raw
+        session.scenario_fs_snapshot = snapshot
+        return snapshot
+
+    def _resolve_target_parts(self, session: Session, target: str) -> Optional[List[str]]:
+        target = (target or "").strip()
+        if target.startswith("/"):
+            parts: List[str] = []
+            for entry in target.split("/"):
+                if not entry or entry == ".":
+                    continue
+                if entry == "..":
+                    if parts:
+                        parts.pop()
+                    continue
+                parts.append(entry)
+            if len(parts) < len(BASE_FS_PATH_PARTS):
+                return None
+            if tuple(parts[: len(BASE_FS_PATH_PARTS)]) != BASE_FS_PATH_PARTS:
+                return None
+            return parts
+
+        cwd_parts = [pt for pt in session.cwd.strip("/").split("/") if pt]
+        if len(cwd_parts) < len(BASE_FS_PATH_PARTS) or tuple(
+            cwd_parts[: len(BASE_FS_PATH_PARTS)]
+        ) != BASE_FS_PATH_PARTS:
+            cwd_parts = list(BASE_FS_PATH_PARTS)
+        for entry in target.split("/"):
+            if not entry or entry == ".":
+                continue
+            if entry == "..":
+                if len(cwd_parts) > len(BASE_FS_PATH_PARTS):
+                    cwd_parts.pop()
+                continue
+            cwd_parts.append(entry)
+        return cwd_parts

@@ -37,6 +37,7 @@ class Session:
     _events_file: str = "logs/events.jsonl"
     cwd: str = "/home/user"
     scenario_fs: Optional[Dict[str, Any]] = field(default=None, repr=False)
+    scenario_fs_snapshot: Optional[Any] = field(default=None, repr=False)
     history: List[str] = field(default_factory=list, repr=False)
     _tty_lock: asyncio.Lock = field(init=False, repr=False)
 
@@ -73,6 +74,7 @@ class Session:
         """
         self.scenario_id = scenario_id or "default"
         self.scenario_fs = None
+        self.scenario_fs_snapshot = None
 
     def record_command(self, command: str) -> None:
         """

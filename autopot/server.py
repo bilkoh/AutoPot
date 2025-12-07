@@ -9,6 +9,7 @@ import uuid
 import pathlib
 from typing import Optional
 import telnetlib3
+from telnetlib3.telopt import ECHO, WILL
 import binascii
 import logging
 from .session import Session
@@ -40,6 +41,16 @@ def _ensure_dirs():
     pathlib.Path(CONFIG["paths"]["userdb"]).parent.mkdir(parents=True, exist_ok=True)
 
 
+def _normalize_for_terminal(text: str) -> str:
+    """
+    Convert newline usage to CRLF sequences that telnet clients expect.
+    """
+    if not text:
+        return ""
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    return normalized.replace("\n", "\r\n")
+
+
 async def shell(reader, writer) -> None:
     peer = writer.get_extra_info("peername") or ("0.0.0.0", 0)
     session_id = str(uuid.uuid4())
@@ -56,6 +67,11 @@ async def shell(reader, writer) -> None:
         bytes_out=0,
         _events_file=CONFIG["paths"]["events_file"],
     )
+    try:
+        if hasattr(writer, "iac"):
+            writer.iac(WILL, ECHO)
+    except Exception:  # pragma: no cover
+        pass
     await session.log("session.connect", "connect", banner=CONFIG["server"]["banner"])
     await session.write_tty("out", CONFIG["server"]["banner"])
     try:
@@ -115,14 +131,29 @@ async def shell(reader, writer) -> None:
                 continue
             session.record_command(line)
             await session.write_tty("in", line)
-            await session.log("command.input", "shell", raw=line, argv=line.split())
-            out, truncated = await router.dispatch(session, line)
+            argv = line.split()
+            await session.log("command.input", "shell", raw=line, argv=argv)
+            normalized_input = _normalize_for_terminal(line)
+            try:
+                writer.echo(normalized_input + "\r\n")
+            except Exception:
+                writer.write(normalized_input + "\r\n")
+            cmd = argv[0] if argv else ""
+            exit_cmd = cmd in ("exit", "logout")
+            if exit_cmd:
+                out = ""
+                truncated = False
+            else:
+                out, truncated = await router.dispatch(session, line)
             await session.write_tty("out", out)
             await session.log(
                 "command.output", "shell", bytes=len(out.encode()), truncated=truncated
             )
-            writer.write(out + "\r\n")
+            normalized = _normalize_for_terminal(out)
+            writer.write(normalized + "\r\n")
             await writer.drain()
+            if exit_cmd:
+                break
     except Exception:
         # avoid surfacing exceptions to clients; ensure we still close cleanly
         pass
