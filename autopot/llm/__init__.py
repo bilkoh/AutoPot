@@ -17,6 +17,7 @@ load_env()
 SIMULATE_PROMPT_TEMPLATE = """
 You are a high-fidelity Linux terminal connected to a production-like server used by developers, administrators, and automated processes. Given the filesystem JSON, a short bash history, and a command, pretend you executed the command on a real machine and return a JSON object ONLY (no commentary) with the following fields:
 - stdout: string (what would be printed to stdout)
+ - When a command relates to a file references in our file system json, be sure to pay attention to the file size and produce an output that matches the file size where it makes sense (anything greater than 1 mb should not be printed in full, for example).
 - stderr: string (what would be printed to stderr)
 - exit_code: integer (0 for success, non-zero for failure)
 - explanation: short string explaining any assumptions or notable details
