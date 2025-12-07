@@ -43,7 +43,7 @@ class AuthGate:
                 )
                 # prompt for username
                 try:
-                    writer.write("login: ")
+                    writer.write("\r\nlogin: ")
                     await writer.drain()
                 except Exception as e:
                     await self.session.log(
@@ -87,7 +87,7 @@ class AuthGate:
                     "auth.step", "auth", step="prompt_password", attempt=attempts
                 )
                 try:
-                    writer.write("Password: ")
+                    writer.write("\r\nPassword: ")
                     await writer.drain()
                 except Exception as e:
                     await self.session.log(
@@ -115,6 +115,9 @@ class AuthGate:
                 if rawp is None or rawp == "":
                     await self.session.log("login.eof", "auth", raw=rawp)
                     return False
+
+                writer.write("\r\n")
+                await writer.drain()
 
                 password = rawp.rstrip("\r\n")
 

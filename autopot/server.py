@@ -112,7 +112,7 @@ async def shell(reader, writer) -> None:
                 bytes_out=session.bytes_out,
             )
             return
-        
+
         router = Router(
             pathlib.Path(CONFIG["paths"]["txtcmds_dir"]),
             max_output=CONFIG["limits"]["max_output_bytes"],
@@ -152,6 +152,8 @@ async def shell(reader, writer) -> None:
                 "command.output", "shell", bytes=len(out.encode()), truncated=truncated
             )
             normalized = _normalize_for_terminal(out)
+            if normalized:
+                writer.write("\r\n")
             writer.write(normalized + "\r\n")
             await writer.drain()
             if exit_cmd:

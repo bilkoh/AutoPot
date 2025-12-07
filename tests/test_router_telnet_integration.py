@@ -79,13 +79,15 @@ async def _read_until(reader, delimiter, timeout=5.0):
 
 
 async def _read_command_output(reader, expected_len, *, timeout=5.0):
-    target = expected_len + 2
+    target = expected_len + 4
     buffer = ""
     while len(buffer) < target:
         chunk = await asyncio.wait_for(reader.read(1024), timeout=timeout)
         if not chunk:
             break
         buffer += chunk
+    if buffer.startswith("\r\n"):
+        buffer = buffer[2:]
     return buffer[:expected_len]
 
 
@@ -93,7 +95,16 @@ def normalize_text(raw: str) -> str:
     """
     Normalize server output to simple newlines so canned files can be compared reliably.
     """
-    return raw.replace("\r\n", "\n").rstrip("\n")
+    return raw.replace("\r\n", "\n").rstrip("\r\n")
+
+
+def _strip_leading_crlf(raw: str) -> str:
+    """
+    Remove a single prefixed CRLF that the server inserts before command output.
+    """
+    if raw.startswith("\r\n"):
+        return raw[2:]
+    return raw
 
 
 class TelnetSession:
@@ -138,6 +149,7 @@ class TelnetSession:
         response = await _read_until(self.reader, delimiter)
         if delimiter and response.endswith(delimiter):
             response = response[: -len(delimiter)]
+        response = _strip_leading_crlf(response)
         return normalize_text(response)
 
     async def close(self):
