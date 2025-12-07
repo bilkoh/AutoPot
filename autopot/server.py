@@ -133,11 +133,13 @@ async def shell(reader, writer) -> None:
             await session.write_tty("in", line)
             argv = line.split()
             await session.log("command.input", "shell", raw=line, argv=argv)
-            normalized_input = _normalize_for_terminal(line)
-            try:
-                writer.echo(normalized_input + "\r\n")
-            except Exception:
-                writer.write(normalized_input + "\r\n")
+            auto_echo = getattr(writer, "will_echo", False)
+            if not auto_echo:
+                normalized_input = _normalize_for_terminal(line)
+                try:
+                    writer.echo(normalized_input + "\r\n")
+                except Exception:
+                    writer.write(normalized_input + "\r\n")
             cmd = argv[0] if argv else ""
             exit_cmd = cmd in ("exit", "logout")
             if exit_cmd:
