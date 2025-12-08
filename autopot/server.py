@@ -57,6 +57,7 @@ def _normalize_for_terminal(text: str) -> str:
 
 
 def _create_configured_llm_client() -> Optional[LLMClient]:
+    """Create primary LLM client (OpenAI-compatible or Gemini)."""
     load_env()
     openai_api_key = os.getenv("OPENAI_API_KEY")
     openai_model = os.getenv("OPENAI_MODEL")
@@ -86,7 +87,35 @@ def _create_configured_llm_client() -> Optional[LLMClient]:
     return None
 
 
+def _create_secondary_llm_client() -> Optional[LLMClient]:
+    """Create secondary LLM client for ensemble mode (Gemini)."""
+    load_env()
+    # For ensemble, secondary is typically Gemini
+    gemini_model = os.getenv("GEMINI_MODEL")
+    gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if gemini_model and gemini_api_key:
+        try:
+            client = create_llm_client("gemini", api_key=gemini_api_key, model=gemini_model)
+            logger.info("Using Gemini LLM model %s as secondary for ensemble mode", gemini_model)
+            return client
+        except Exception as exc:
+            logger.warning("Failed to initialize secondary Gemini LLM client: %s", exc)
+    logger.debug("No secondary LLM provider configured for ensemble mode")
+    return None
+
+
 LLM_CLIENT = _create_configured_llm_client()
+LLM_CLIENT_SECONDARY = None
+ENSEMBLE_MODE = False
+
+# Enable ensemble mode if configured
+if os.getenv("ENSEMBLE_MODE", "").lower() in ("true", "1", "yes"):
+    LLM_CLIENT_SECONDARY = _create_secondary_llm_client()
+    if LLM_CLIENT and LLM_CLIENT_SECONDARY:
+        ENSEMBLE_MODE = True
+        logger.info("Ensemble mode enabled: primary + secondary LLM")
+    else:
+        logger.warning("Ensemble mode requested but not both clients available")
 
 
 async def shell(reader, writer) -> None:
@@ -155,6 +184,8 @@ async def shell(reader, writer) -> None:
             pathlib.Path(CONFIG["paths"]["txtcmds_dir"]),
             max_output=CONFIG["limits"]["max_output_bytes"],
             llm_client=LLM_CLIENT,
+            ensemble_mode=ENSEMBLE_MODE,
+            llm_client_secondary=LLM_CLIENT_SECONDARY,
         )
 
         prompt = lambda: f"{session.username or 'guest'}@{CONFIG['hostname']}$ "

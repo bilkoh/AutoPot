@@ -22,6 +22,8 @@ You are a high-fidelity Linux terminal connected to a production-like server use
 - exit_code: integer (0 for success, non-zero for failure)
 - explanation: short string explaining any assumptions or notable details
 
+IMPORTANT: For filesystem traversal commands (tree, find, du, ls -R), use the provided Filesystem JSON to generate accurate directory structures and file listings. Commands like 'tree' should output a visual tree structure using the actual directories and files from the JSON, not just usage messages.
+
 Filesystem JSON:
 {fs}
 
@@ -239,10 +241,12 @@ class OpenAICompatClient(BaseLLMClient):
         base_url: Optional[str] = None,
         api_key: Optional[str] = None,
         model: Optional[str] = None,
+        max_tokens: Optional[int] = None,
     ):
         self.base_url = base_url or os.getenv("OPENAI_BASE_URL")
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.model = model or os.getenv("OPENAI_MODEL")
+        self.max_tokens = max_tokens or (int(os.getenv("OPENAI_MAX_TOKENS")) if os.getenv("OPENAI_MAX_TOKENS") else None)
         try:
             from openai import OpenAI
         except Exception as e:
@@ -250,16 +254,20 @@ class OpenAICompatClient(BaseLLMClient):
         self._client = OpenAI(base_url=self.base_url, api_key=self.api_key)
 
     def _raw_generate(
-        self, prompt: str, model: Optional[str] = None, temperature: float = 0.0
+        self, prompt: str, model: Optional[str] = None, temperature: float = 0.0, max_tokens: Optional[int] = None
     ) -> str:
         model = model or self.model
         if not model:
             raise ValueError("model must be provided")
-        resp = self._client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
-        )
+        max_tokens = max_tokens or self.max_tokens
+        kwargs = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+        }
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+        resp = self._client.chat.completions.create(**kwargs)
         try:
             return resp.choices[0].message.content
         except Exception:
@@ -270,15 +278,20 @@ class OpenAICompatClient(BaseLLMClient):
         messages: List[Dict[str, str]],
         temperature: float = 0.0,
         model: Optional[str] = None,
+        max_tokens: Optional[int] = None,
     ) -> str:
         model = model or self.model
         if not model:
             raise ValueError("model must be provided")
-        resp = self._client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=temperature,
-        )
+        max_tokens = max_tokens or self.max_tokens
+        kwargs = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+        }
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+        resp = self._client.chat.completions.create(**kwargs)
         try:
             return resp.choices[0].message.content
         except Exception:

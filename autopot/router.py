@@ -25,6 +25,7 @@ TXT_CMD_MAP = {
     "df": "df.txt",
     "ps": "ps.txt",
     "busybox": "busybox.txt",
+    # "tree": "tree.txt",  # Disabled to test LLM generation
     # uname is handled by a real handler for `uname -a`
     # cat /etc/passwd -> etc_passwd.txt
 }
@@ -51,12 +52,25 @@ class Router:
         scenarios_root: Optional[pathlib.Path] = None,
         max_output: int = 16_384,
         llm_client: Optional[LLMClient] = None,
+        ensemble_mode: bool = False,
+        llm_client_secondary: Optional[LLMClient] = None,
     ):
         # Keep txtcmds_dir param for backward compatibility but prefer scenario assets.
         self.txtcmds_dir = pathlib.Path(txtcmds_dir) if txtcmds_dir else None
         self.scenario_mgr = ScenarioManager(scenarios_root)
         self.max_output = int(max_output)
         self.llm_client = llm_client
+        self.ensemble_mode = ensemble_mode
+        self.llm_client_secondary = llm_client_secondary
+        
+        # Ensemble statistics tracking
+        self.ensemble_stats = {
+            "total_commands": 0,
+            "primary_wins": 0,
+            "secondary_wins": 0,
+            "both_failed": 0,
+            "last_logged": 0,  # Track when we last logged stats
+        }
 
     async def dispatch(self, session: Session, line: str) -> Tuple[str, bool]:
         """
@@ -169,6 +183,11 @@ class Router:
         if p:
             return await self._read_txt_file(p)
 
+        # Ensemble mode: query both models and pick best response
+        if self.ensemble_mode and self.llm_client and self.llm_client_secondary:
+            return await self._simulate_with_ensemble(session, line, cmd)
+        
+        # Single LLM mode
         if self.llm_client:
             return await self._simulate_with_llm(session, line, cmd)
 
@@ -235,6 +254,192 @@ class Router:
         if stdout and stderr:
             return "\n".join([stdout, stderr])
         return stdout or stderr or ""
+
+    def _score_response(self, response: Optional[Dict[str, Any]], is_valid: bool) -> int:
+        """
+        Score an LLM response based on quality heuristics.
+        Higher score = better response.
+        """
+        if not is_valid or response is None:
+            return 0
+        
+        score = 10  # Base score for valid JSON
+        
+        # Prefer successful commands (exit_code = 0)
+        if response.get("exit_code") == 0:
+            score += 5
+        
+        # Prefer responses with stdout content
+        stdout = response.get("stdout", "")
+        if stdout and len(stdout) > 0:
+            score += 5
+            # Bonus for reasonable length (not too short, not empty)
+            if len(stdout) > 10:
+                score += 3
+        
+        # Slight penalty for stderr (often means errors)
+        stderr = response.get("stderr", "")
+        if not stderr or len(stderr) == 0:
+            score += 2
+        
+        # Bonus for having an explanation (shows model thought about it)
+        if response.get("explanation"):
+            score += 1
+        
+        return score
+
+    async def _simulate_with_ensemble(
+        self, session: Session, line: str, cmd: str
+    ) -> Tuple[str, bool]:
+        """
+        Query both LLM clients in parallel, score responses, pick the best one.
+        """
+        fs = self._get_fs_for_simulation(session)
+        history = list(session.history)
+        
+        # Query both models in parallel
+        results = await asyncio.gather(
+            self._query_single_llm(self.llm_client, "primary", line, fs, history, cmd),
+            self._query_single_llm(self.llm_client_secondary, "secondary", line, fs, history, cmd),
+            return_exceptions=True,
+        )
+        
+        primary_result, secondary_result = results
+        
+        # Score both responses
+        primary_score = 0
+        secondary_score = 0
+        
+        if isinstance(primary_result, dict) and "response" in primary_result:
+            primary_score = self._score_response(primary_result["response"], primary_result["valid"])
+        
+        if isinstance(secondary_result, dict) and "response" in secondary_result:
+            secondary_score = self._score_response(secondary_result["response"], secondary_result["valid"])
+        
+        # Pick the winner
+        if primary_score >= secondary_score and primary_score > 0:
+            winner = "primary"
+            response = primary_result["response"]
+        elif secondary_score > 0:
+            winner = "secondary"
+            response = secondary_result["response"]
+        else:
+            # Both failed, return command not found
+            self._update_ensemble_stats("none")
+            await self._log_ensemble_stats_if_needed(session)
+            await session.log(
+                "llm.ensemble",
+                "llm",
+                command=line,
+                primary_score=primary_score,
+                secondary_score=secondary_score,
+                winner="none",
+            )
+            return (f"sh: {cmd}: command not found", False)
+        
+        # Update statistics
+        self._update_ensemble_stats(winner)
+        
+        output = self._format_simulated_output(response)
+        truncated = len(output.encode()) > self.max_output
+        
+        # Log ensemble decision for research
+        await session.log(
+            "llm.ensemble",
+            "llm",
+            command=line,
+            primary_score=primary_score,
+            secondary_score=secondary_score,
+            winner=winner,
+            primary_valid=isinstance(primary_result, dict) and primary_result.get("valid", False),
+            secondary_valid=isinstance(secondary_result, dict) and secondary_result.get("valid", False),
+            output=output,
+            truncated=truncated,
+        )
+        
+        # Log summary stats periodically
+        await self._log_ensemble_stats_if_needed(session)
+        
+        return (output[: self.max_output], truncated)
+
+    async def _query_single_llm(
+        self,
+        client: Optional[LLMClient],
+        client_name: str,
+        line: str,
+        fs: Dict[str, Any],
+        history: List[str],
+        cmd: str,
+    ) -> Dict[str, Any]:
+        """
+        Query a single LLM client and return structured result.
+        """
+        if not client:
+            return {"valid": False, "response": None, "error": "no client"}
+        
+        try:
+            response = await asyncio.to_thread(
+                client.simulate_command, line, fs, history
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.exception("LLM %s simulate_command failed for %s", client_name, cmd)
+            return {"valid": False, "response": None, "error": str(e)}
+        
+        if not isinstance(response, dict):
+            logger.warning("LLM %s returned unexpected response for %s", client_name, cmd)
+            return {"valid": False, "response": None, "error": "invalid response type"}
+        
+        return {"valid": True, "response": response, "error": None}
+
+    def _update_ensemble_stats(self, winner: str) -> None:
+        """Update ensemble statistics counters."""
+        self.ensemble_stats["total_commands"] += 1
+        
+        if winner == "primary":
+            self.ensemble_stats["primary_wins"] += 1
+        elif winner == "secondary":
+            self.ensemble_stats["secondary_wins"] += 1
+        elif winner == "none":
+            self.ensemble_stats["both_failed"] += 1
+
+    async def _log_ensemble_stats_if_needed(self, session: Session) -> None:
+        """Log ensemble summary statistics every 10 commands."""
+        total = self.ensemble_stats["total_commands"]
+        last_logged = self.ensemble_stats["last_logged"]
+        
+        # Log every 10 commands
+        if total > 0 and (total - last_logged) >= 10:
+            primary_wins = self.ensemble_stats["primary_wins"]
+            secondary_wins = self.ensemble_stats["secondary_wins"]
+            both_failed = self.ensemble_stats["both_failed"]
+            
+            # Calculate percentages
+            primary_pct = (primary_wins / total * 100) if total > 0 else 0
+            secondary_pct = (secondary_wins / total * 100) if total > 0 else 0
+            failed_pct = (both_failed / total * 100) if total > 0 else 0
+            
+            # Log summary
+            await session.log(
+                "llm.ensemble.summary",
+                "llm",
+                total_commands=total,
+                primary_wins=primary_wins,
+                secondary_wins=secondary_wins,
+                both_failed=both_failed,
+                primary_win_rate=f"{primary_pct:.1f}%",
+                secondary_win_rate=f"{secondary_pct:.1f}%",
+                failure_rate=f"{failed_pct:.1f}%",
+            )
+            
+            # Also log to console for visibility
+            logger.info(
+                "Ensemble Stats: %d commands | Primary: %d (%.1f%%) | Secondary: %d (%.1f%%) | Failed: %d (%.1f%%)",
+                total, primary_wins, primary_pct, secondary_wins, secondary_pct, both_failed, failed_pct
+            )
+            
+            self.ensemble_stats["last_logged"] = total
 
     def _handle_builtin(self, session: Session, argv: List[str]) -> Optional[Tuple[str, bool]]:
         if not argv:
