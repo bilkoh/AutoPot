@@ -3,11 +3,12 @@ Lightweight LLM client wrapper supporting OpenAI-compatible endpoints and Google
 Refactored to provide BaseLLMClient to centralize simulate/generate logic.
 """
 
+import logging
+import time
 from typing import Protocol, Any, Dict, Optional, List
 import os
 import json
 import jsonschema
-import logging
 
 from autopot.env import load_env
 
@@ -175,7 +176,13 @@ class BaseLLMClient:
         prompt = SIMULATE_PROMPT_TEMPLATE.format(
             fs=json.dumps(fs), bash_history=json.dumps(bash_history), command=command
         )
+        start_time = time.monotonic()
         text = self._raw_generate(prompt, model=model)
+        end_time = time.monotonic()
+        logger.warning(
+            "simulate_command: LLM response took %.2f seconds", end_time - start_time
+        )
+        logger.warning("simulate_command: LLM response: %s", text)
         parsed = _validate_and_parse_json(text, SIMULATE_SCHEMA)
         if parsed is None:
             logger.warning(
@@ -246,7 +253,11 @@ class OpenAICompatClient(BaseLLMClient):
         self.base_url = base_url or os.getenv("OPENAI_BASE_URL")
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.model = model or os.getenv("OPENAI_MODEL")
-        self.max_tokens = max_tokens or (int(os.getenv("OPENAI_MAX_TOKENS")) if os.getenv("OPENAI_MAX_TOKENS") else None)
+        self.max_tokens = max_tokens or (
+            int(os.getenv("OPENAI_MAX_TOKENS"))
+            if os.getenv("OPENAI_MAX_TOKENS")
+            else None
+        )
         try:
             from openai import OpenAI
         except Exception as e:
@@ -254,7 +265,11 @@ class OpenAICompatClient(BaseLLMClient):
         self._client = OpenAI(base_url=self.base_url, api_key=self.api_key)
 
     def _raw_generate(
-        self, prompt: str, model: Optional[str] = None, temperature: float = 0.0, max_tokens: Optional[int] = None
+        self,
+        prompt: str,
+        model: Optional[str] = None,
+        temperature: float = 0.0,
+        max_tokens: Optional[int] = None,
     ) -> str:
         model = model or self.model
         if not model:

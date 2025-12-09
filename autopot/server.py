@@ -8,7 +8,7 @@ import datetime
 import uuid
 import pathlib
 import os
-from typing import Optional
+from typing import List, Optional
 import telnetlib3
 from telnetlib3.telopt import ECHO, WILL
 import binascii
@@ -54,6 +54,20 @@ def _normalize_for_terminal(text: str) -> str:
         return ""
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     return normalized.replace("\n", "\r\n")
+
+
+def _strip_backspaces(text: str) -> str:
+    """Remove backspace/delete characters so the typed line matches what user sees."""
+    if not text:
+        return ""
+    cleaned: List[str] = []
+    for ch in text:
+        if ch in ("\b", "\x7f"):
+            if cleaned:
+                cleaned.pop()
+            continue
+        cleaned.append(ch)
+    return "".join(cleaned)
 
 
 def _create_configured_llm_client() -> Optional[LLMClient]:
@@ -196,13 +210,12 @@ async def shell(reader, writer) -> None:
             line = await reader.readline()
             if line is None:
                 break
-            line = line.rstrip("\r\n")
-            if not line:
+            raw_line = line.rstrip("\r\n")
+            if not raw_line:
                 continue
-            session.record_command(line)
-            await session.write_tty("in", line)
+            line = _strip_backspaces(raw_line)
             argv = line.split()
-            await session.log("command.input", "shell", raw=line, argv=argv)
+            await session.log("command.input", "shell", raw=raw_line, argv=argv)
             auto_echo = getattr(writer, "will_echo", False)
             if not auto_echo:
                 normalized_input = _normalize_for_terminal(line)
@@ -210,6 +223,10 @@ async def shell(reader, writer) -> None:
                     writer.echo(normalized_input + "\r\n")
                 except Exception:
                     writer.write(normalized_input + "\r\n")
+            if not line:
+                continue
+            session.record_command(line)
+            await session.write_tty("in", line)
             cmd = argv[0] if argv else ""
             exit_cmd = cmd in ("exit", "logout")
             if exit_cmd:
